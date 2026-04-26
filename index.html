@@ -265,6 +265,52 @@
       .week-card { display: none !important; }
     }
 
+    /* ─── GAMIFICATION BADGES ─────────── */
+    .badge {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      width: 74px; height: 74px; border-radius: 20px;
+      background: var(--s2); border: 1px solid var(--bd);
+      text-align: center; opacity: 0.4; filter: grayscale(1);
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .badge.unlocked {
+      opacity: 1; filter: grayscale(0);
+      background: linear-gradient(135deg, rgba(108,99,255,0.15), rgba(108,99,255,0.02));
+      border-color: rgba(108,99,255,0.3);
+      box-shadow: 0 8px 24px rgba(108,99,255,0.12);
+      transform: translateY(-2px);
+    }
+    .badge-icon { font-size: 26px; margin-bottom: 6px; filter: drop-shadow(0 2px 8px rgba(108,99,255,0.4)); }
+    .badge-name { font-size: 9px; font-family: 'DM Mono', monospace; font-weight: 600; color: var(--tx); line-height: 1.1; }
+    .badge, .hmc { cursor: pointer !important; }
+
+    /* ─── TOAST NOTIFICATION ─────────── */
+    .toast-wrap {
+      position: fixed;
+      bottom: 100px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      z-index: 10000;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .toast-wrap.on {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    .toast-box {
+      background: var(--tx);
+      color: var(--bg);
+      padding: 12px 24px;
+      border-radius: 40px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      white-space: nowrap;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
     canvas#cc {
       position: fixed;
       inset: 0;
@@ -3917,6 +3963,19 @@
                 <span style="font-size:11px;color:var(--mu);font-family:'DM Mono',monospace">More</span>
               </div>
             </div>
+          </div>
+          <div>
+            <div class="section-label">Lifestyle balance</div>
+            <div class="chart-card" style="padding:20px; display:flex; justify-content:center; align-items:center;">
+              <canvas id="radar-chart" width="240" height="240"></canvas>
+            </div>
+          </div>
+          <div>
+            <div class="section-label">Trophy room</div>
+            <div class="chart-card" id="badges-grid" style="display:flex; flex-wrap:wrap; gap:10px; padding:16px;">
+              <!-- Badges injected here -->
+            </div>
+          </div>
         </div>
 
         <!-- Weekly Summary Card (Mobile Only) -->
@@ -3948,7 +4007,6 @@
           </div>
           <div class="week-msg" id="week-msg">Keep going!</div>
         </div>
-      </div>
       </div>
 
       <!-- ══ REWARDS ══ -->
@@ -4925,7 +4983,7 @@
             var pct = total > 0 ? count / total : 0;
             var cls = pct === 0 ? 'hmc' : (pct < 0.34 ? 'hmc hm1' : pct < 0.67 ? 'hmc hm2' : pct < 1 ? 'hmc hm3' : 'hmc hm4');
             var label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ': ' + count + '/' + total + ' habits';
-            cells += '<div class="' + cls + '" title="' + label + '" style="cursor:default;border-radius:5px;aspect-ratio:1"></div>';
+            cells += '<div class="' + cls + '" title="' + label + '" onclick="showToast(\'' + label + '\')" style="cursor:pointer;border-radius:5px;aspect-ratio:1"></div>';
           }
           hm.innerHTML = cells;
         }
@@ -4962,6 +5020,105 @@
             '</div>' +
             '</div>';
         }).join('');
+      }
+
+      // ─── GAMIFICATION BADGES ───
+      var bgrid = document.getElementById('badges-grid');
+      if (bgrid) {
+        var totalPoints = S.points || 0;
+        var totalDoneAllTime = S.habits.reduce(function(s,h){ return s + (h.hist?h.hist.filter(Boolean).length:0); }, 0);
+        var highestStreak = Math.max.apply(null, S.habits.map(function(h){return h.streak||0;}).concat([0]));
+        var hasRewards = (S.rewards && S.rewards.length > 0);
+        
+        var badges = [
+          { id: 'first', icon: '🌱', name: 'First Step', unl: totalDoneAllTime > 0 },
+          { id: 'fire3', icon: '🔥', name: 'On Fire', unl: highestStreak >= 3 },
+          { id: 'fire7', icon: '☄️', name: 'Unstoppable', unl: highestStreak >= 7 },
+          { id: 'pts100', icon: '💎', name: '100 Points', unl: totalPoints >= 100 },
+          { id: 'reward', icon: '🎁', name: 'Goal Setter', unl: hasRewards },
+          { id: 'master', icon: '👑', name: '100 Habits', unl: totalDoneAllTime >= 100 }
+        ];
+
+        bgrid.innerHTML = badges.map(function(b) {
+          var tip = b.unl ? 'Unlocked: ' + b.name : 'Locked: ' + b.name + ' (Keep going!)';
+          return '<div class="badge ' + (b.unl ? 'unlocked' : '') + '" title="' + tip + '" onclick="showToast(\'' + tip + '\')">' +
+                 '<div class="badge-icon">' + b.icon + '</div>' +
+                 '<div class="badge-name">' + b.name + '</div>' +
+                 '</div>';
+        }).join('');
+      }
+
+      // ─── LIFESTYLE BALANCE (RADAR CHART) ───
+      var rcv = document.getElementById('radar-chart');
+      if (rcv) {
+        var ctx = rcv.getContext('2d');
+        var cats = ['Health', 'Learning', 'Work', 'Family', 'Custom'];
+        var scores = [0, 0, 0, 0, 0];
+        
+        S.habits.forEach(function(h) {
+          var idx = cats.indexOf(h.cat || 'Custom');
+          if (idx === -1) idx = 4;
+          var done = h.hist ? h.hist.filter(function(v){return v===1||v===2}).length : 0;
+          scores[idx] += done;
+        });
+        var maxScore = Math.max.apply(null, scores.concat([4])); 
+
+        var cx = 120, cy = 120, radius = 70;
+        ctx.clearRect(0,0,240,240);
+        
+        ctx.strokeStyle = 'rgba(108,99,255,0.15)';
+        ctx.lineWidth = 1;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = '10px "DM Mono", monospace';
+        
+        var isLight = document.documentElement.classList.contains('light');
+        var txtCol = isLight ? '#666' : '#aaa';
+        
+        for (var level = 1; level <= 4; level++) {
+           var r = radius * (level/4);
+           ctx.beginPath();
+           for (var i=0; i<5; i++) {
+             var ang = (Math.PI*2/5) * i - Math.PI/2;
+             var x = cx + Math.cos(ang)*r;
+             var y = cy + Math.sin(ang)*r;
+             if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+           }
+           ctx.closePath();
+           ctx.stroke();
+        }
+
+        cats.forEach(function(c, i) {
+           var ang = (Math.PI*2/5) * i - Math.PI/2;
+           ctx.beginPath();
+           ctx.moveTo(cx, cy);
+           ctx.lineTo(cx + Math.cos(ang)*radius, cy + Math.sin(ang)*radius);
+           ctx.stroke();
+           
+           ctx.fillStyle = txtCol;
+           var lx = cx + Math.cos(ang)*(radius+18);
+           var ly = cy + Math.sin(ang)*(radius+18);
+           ctx.fillText(c, lx, ly);
+        });
+
+        ctx.beginPath();
+        var glow = ctx.createLinearGradient(0,0,240,240);
+        glow.addColorStop(0, 'rgba(108,99,255,0.6)');
+        glow.addColorStop(1, 'rgba(0,180,200,0.6)');
+
+        for (var i=0; i<5; i++) {
+           var ang = (Math.PI*2/5) * i - Math.PI/2;
+           var valR = radius * (scores[i] / maxScore);
+           var x = cx + Math.cos(ang)*valR;
+           var y = cy + Math.sin(ang)*valR;
+           if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = glow;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(108,99,255,1)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
       renderWeeklySummary();
     }
@@ -5696,7 +5853,20 @@
       }
       draw();
     })();
+
+    // ─── TOAST SYSTEM ───────────────────────────
+    var _toastT = null;
+    function showToast(m) {
+      var w = document.getElementById('toast-wrap');
+      var b = document.getElementById('toast-msg');
+      if (!w || !b) return;
+      b.textContent = m;
+      w.classList.add('on');
+      clearTimeout(_toastT);
+      _toastT = setTimeout(function() { w.classList.remove('on'); }, 2500);
+    }
   </script>
+  <div id="toast-wrap" class="toast-wrap"><div id="toast-msg" class="toast-box"></div></div>
   <!-- CUSTOM POPUP MODAL -->
   <div class="pop-overlay" id="pop-overlay">
     <div class="pop-box">
